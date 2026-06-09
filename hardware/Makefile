@@ -13,7 +13,7 @@ SIM_BIN = sim_generic_core
 MEM_FILES = layer1_lane0.mem layer1_lane1.mem layer1_lane2.mem layer1_lane3.mem \
             layer2_lane0.mem layer2_lane1.mem layer2_lane2.mem layer2_lane3.mem
 
-.PHONY: all run compile generate clean help
+.PHONY: all run compile generate clean synth help
 
 all: run
 
@@ -35,6 +35,10 @@ clean:
 	@echo "=== Cleaning Simulation Artifacts ==="
 	rm -f $(SIM_BIN)
 
+synth:
+	@echo "=== Synthesizing Generic KAN Core with Yosys ==="
+	yosys -p "read_verilog -sv $(TOP_SRC) $(CORE_SRC) $(BRAM_SRC); synth_ecp5 -top mnist_generic_top"
+
 help:
 	@echo "Generic KAN Core Simulation Makefile"
 	@echo "Targets:"
@@ -43,3 +47,4 @@ help:
 	@echo "  run       : Execute compiled simulation binary"
 	@echo "  generate  : Run Julia script to regenerate BRAM mem initialization files"
 	@echo "  clean     : Remove generated simulation binaries"
+	@echo "  synth     : Synthesize the design using Yosys for ECP5"

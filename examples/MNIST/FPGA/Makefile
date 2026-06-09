@@ -13,7 +13,7 @@ LAYER2_SRC = mnist_kan_layer2.sv
 
 SIM_BIN = sim_mnist_kan
 
-.PHONY: all run compile generate clean help
+.PHONY: all run compile generate clean synth help
 
 all: run
 
@@ -37,6 +37,10 @@ clean:
 	@echo "=== Cleaning Simulation Artifacts ==="
 	rm -f $(SIM_BIN)
 
+synth:
+	@echo "=== Synthesizing Custom MNIST RTL with Yosys ==="
+	yosys -p "read_verilog -sv $(TOP_SRC) $(LAYER1_SRC) $(LAYER2_SRC); synth_ecp5 -top mnist_kan_top"
+
 help:
 	@echo "MNIST KAN-LUT FPGA Simulation Makefile"
 	@echo "Targets:"
@@ -45,3 +49,4 @@ help:
 	@echo "  run       : Execute compiled simulation binary"
 	@echo "  generate  : Run Julia scripts to regenerate RTL and test vectors"
 	@echo "  clean     : Remove generated simulation binaries"
+	@echo "  synth     : Synthesize the design using Yosys for ECP5"
