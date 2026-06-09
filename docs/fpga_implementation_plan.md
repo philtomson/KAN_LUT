@@ -78,3 +78,26 @@ We will simulate both designs using **Icarus Verilog** (or Verilator if availabl
 1. **Throughput / Latency**: Cycle count per inference.
 2. **Resource Consumption**: Estimating Logic Elements (LEs) and Block RAMs (BRAMs).
 3. **Synthesis Flexibility**: Evaluating the trade-offs of dynamic reloading vs. custom compilation.
+
+---
+
+## Tang Nano 20K Physical System Integration & Interface
+
+To run KAN-LUT inference on a physical Tang Nano 20K board, the design will integrate three auxiliary system modules wrapped around the core:
+
+1. **UART Receiver Module (28x28 Input Stream)**:
+   * Receives 784 bytes of a raw 28x28 MNIST digit image from a host PC over USB.
+   * Transmits at 115200 or 921600 baud.
+   * Physically mapped to the onboard **BL702** USB-to-UART bridge:
+     * **Pin T11**: FPGA RX (receives data from PC)
+     * **Pin T12**: FPGA TX (sends data to PC)
+
+2. **On-Chip 2x2 Downsampler (Average Pooling)**:
+   * Since the model uses 14x14 inputs ($196$ features), the raw 28x28 stream is pooled on the fly using a small line buffer:
+     $$\text{pixel}_{14\times14} = (\text{p00} + \text{p01} + \text{p10} + \text{p11}) \gg 2$$
+   * Writes the resulting 196 bytes directly into `in_mem` block RAM.
+
+3. **Argmax Detector & UART Transmitter**:
+   * Evaluates the 10 final output activations.
+   * Finds the predicted class index (0–9) with the maximum activation.
+   * Serializes the 1-byte prediction and transmits it back to the PC over Pin T12.
