@@ -3,3 +3,17 @@
 
 # Generated plots
 *.png
+
+# Simulation executables
+sim_*
+
+# Hex memory initialization files
+*.mem
+
+# Test data stimulus
+tb_data.txt
+
+# Generated custom MNIST RTL
+examples/MNIST/FPGA/mnist_kan_layer1.sv
+examples/MNIST/FPGA/mnist_kan_layer2.sv
+examples/MNIST/FPGA/mnist_kan_top.sv

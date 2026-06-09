@@ -71,8 +71,8 @@ function fixed_lut_inference(luts::Array{Int32, 3}, x_int::AbstractMatrix{<:Inte
                 sum_val += luts[v + 1, q, p]
             end
             
-            # Divide sum by 2^k with rounding to nearest integer
-            y_val = round(Int32, sum_val / (2.0^k))
+            # Divide sum by 2^k with rounding to nearest integer (hardware-accurate shift)
+            y_val = floor(Int32, (sum_val + (1 << (k - 1))) / (1 << k))
             
             # Clip/Saturate to output bitwidth range [0, 2^n_out - 1]
             y_int[q, b_idx] = clamp(y_val, Int32(0), Int32((1 << n_out) - 1))
