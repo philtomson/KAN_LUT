@@ -28,7 +28,22 @@ This Julia framework implements KANs optimized for resource-efficient FPGA deplo
 
 ---
 
-## Running the Demo
+## Available Examples
+
+We provide two end-to-end examples showcasing training, quantization, and verification:
+
+1. **Moons Classification (`examples/moon/`)**:
+   * Synthetic 2D half-moons binary classification.
+   * Includes boundary visualization plots comparing continuous, quantized, and adapted models.
+   * See the [Moons README](file:///home/phil/devel/FPGA/KAN_LUT/examples/moon/README.md) for details.
+2. **MNIST Digits Classification (`examples/MNIST/`)**:
+   * The classic handwritten digits classification task downsampled to 14x14 pixels.
+   * Prints digit ASCII art inside the terminal and verifies bit-accurate inference.
+   * See the [MNIST README](file:///home/phil/devel/FPGA/KAN_LUT/examples/MNIST/README.md) for details.
+
+---
+
+## Running the Moons Demo
 
 To run the end-to-end demo which trains the KAN on an AMD GPU, quantizes it to 8-bit static LUTs, and runs online adaptation:
 ```bash
