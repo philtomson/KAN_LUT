@@ -40,6 +40,8 @@ end
 # Helper to rotate 2D points to simulate a distribution shift
 function rotate_points(X::AbstractMatrix{Float32}, theta_degrees::Real)
     rad = Float32(deg2rad(theta_degrees))
+    rot_mat = Float32[cos(rad) -sin(rad); sign(rad) cos(rad)]
+    # Use exact formula: rot_mat = [cos -sin; sin cos]
     rot_mat = Float32[cos(rad) -sin(rad); sin(rad) cos(rad)]
     return rot_mat * X
 end
@@ -52,17 +54,13 @@ X_test, Y_test = make_moons(100, noise=0.1f0)
 println("Train features size: ", size(X_train))
 println("Test features size: ", size(X_test))
 
-# Verify domain fits within KAN layer range [-2.0, 2.0]
+# Verify domain fits within KAN layer range [-2.5, 2.5]
 println("Train input X range: [", minimum(X_train), ", ", maximum(X_train), "]")
 
 println("\n==================================================")
 println("STEP 2: Defining and Training KAN on GPU")
 println("==================================================")
 # Instantiate a 2-layer KAN: 2 inputs -> 8 hidden nodes -> 2 outputs
-model = Chain(
-    KANLayer(2, 8, G=10, a=-2.0, b=-2.0, init=Flux.glorot_uniform), # Will be overridden in constructor to a=-2.0, b=2.0
-    KANLayer(8, 2, G=10, a=-2.0, b=-2.0, init=Flux.glorot_uniform)
-)
 # Re-create layers with proper domain bounds [-2.5, 2.5]
 layer1 = KANLayer(2, 8, G=10, a=-2.5, b=2.5)
 layer2 = KANLayer(8, 2, G=10, a=-2.5, b=2.5)
@@ -125,10 +123,13 @@ luts2 = generate_static_luts(l2, n_in, n_out, k)
 println("Layer 1 LUT array shape: ", size(luts1))
 println("Layer 2 LUT array shape: ", size(luts2))
 
-# Save LUTs to JSON
-model_path = "moons_luts.json"
-save_lut_json(model_path, luts1, l1.a, l1.b, n_in, n_out, k)
-println("Saved Layer 1 LUTs to: ", model_path)
+# Save LUTs to JSON in the same directory as this script
+model_path1 = joinpath(@__DIR__, "moons_luts_layer1.json")
+model_path2 = joinpath(@__DIR__, "moons_luts_layer2.json")
+save_lut_json(model_path1, luts1, l1.a, l1.b, n_in, n_out, k)
+save_lut_json(model_path2, luts2, l2.a, l2.b, n_in, n_out, k)
+println("Saved Layer 1 LUTs to: ", model_path1)
+println("Saved Layer 2 LUTs to: ", model_path2)
 
 println("\n==================================================")
 println("STEP 4: Bit-Accurate Fixed-Point Inference")
@@ -237,5 +238,3 @@ println("Adaptation Gain: +$(round((shifted_acc_after - shifted_acc_before) * 10
 println("\n==================================================")
 println("DEMO COMPLETED SUCCESSFULLY!")
 println("==================================================")
-# Cleanup saved JSON model
-rm(model_path, force=true)

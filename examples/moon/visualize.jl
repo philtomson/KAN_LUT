@@ -1,4 +1,4 @@
-# examples/visualize.jl
+# examples/moon/visualize.jl
 # Generates a visual 2x2 comparison plot of the decision boundaries:
 # 1. Continuous KAN Layer
 # 2. Static Bit-Accurate Integer LUT
@@ -204,6 +204,6 @@ scatter!(p4, X_shifted[1, Y_shifted[2, :]], X_shifted[2, Y_shifted[2, :]], color
 # Combine subplots
 plt = plot(p1, p2, p3, p4, layout=(2,2), size=(900, 750))
 
-output_path = "examples/moons_plots.png"
+output_path = joinpath(@__DIR__, "moons_plots.png")
 savefig(plt, output_path)
 println("Successfully saved comparison plot to: ", output_path)
