@@ -16,9 +16,10 @@ This Julia framework implements KANs optimized for resource-efficient FPGA deplo
 
 ## Installation & Setup
 
-1. Clone or navigate to the project directory:
+1. Clone the repository and navigate to the project directory:
    ```bash
-   cd /home/phil/devel/FPGA/KAN_LUT
+   git clone git@github.com:philtomson/KAN_LUT.git
+   cd KAN_LUT
    ```
 2. Start Julia and instantiate the project dependencies:
    ```bash
