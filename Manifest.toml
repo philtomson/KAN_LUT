@@ -2,7 +2,7 @@
 
 julia_version = "1.12.5"
 manifest_format = "2.0"
-project_hash = "589bf105d961b71588e2394c1e1df6cdc915304a"
+project_hash = "db20703aebe3420e9b30ba5886f52165a128b284"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "bbc22a9a08a0ef6460041086d8a7b27940ed4ffd"
@@ -893,7 +893,7 @@ uuid = "b14d175d-62b4-44ba-8fb7-3064adc8c3ec"
 version = "0.2.4"
 
 [[deps.KAN_LUT]]
-deps = ["AMDGPU", "Adapt", "BenchmarkTools", "Flux", "Functors", "JSON", "LinearAlgebra", "NNlib", "Plots", "Random"]
+deps = ["AMDGPU", "Adapt", "BenchmarkTools", "Flux", "Functors", "JSON", "LinearAlgebra", "MLDatasets", "NNlib", "Plots", "Random"]
 path = "."
 uuid = "a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6"
 version = "0.1.0"
