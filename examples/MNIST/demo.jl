@@ -62,8 +62,8 @@ println("==================================================")
 # Both layers must share matching domain boundaries to prevent scale/offset mismatch
 # in the direct cascaded integer LUT lookups. We widen the domain to [-8.0, 8.0]
 # to prevent hidden layer activation clipping.
-layer1 = KANLayer(196, 32, G=5, a=-8.0, b=8.0)
-layer2 = KANLayer(32, 10, G=5, a=-8.0, b=8.0)
+layer1 = KANLayer(196, 64, G=5, a=-8.0, b=8.0)
+layer2 = KANLayer(64, 10, G=5, a=-8.0, b=8.0)
 model = Chain(layer1, layer2)
 
 # Select GPU if available

@@ -1,5 +1,5 @@
 // hardware/kan_generic_core.sv
-// Parameterized KAN-LUT Generic IP Core with a 3-stage pipeline.
+// Parameterized KAN-LUT Generic IP Core with PSRAM-backed Weight Cache.
 
 `timescale 1ns/1ps
 
@@ -9,11 +9,7 @@ module kan_generic_core #(
     parameter int PARALLELISM = 4,
     parameter int LUT_DEPTH = 256,
     parameter int DATA_WIDTH = 14,
-    parameter int FRACTIONAL_BITS = 4,
-    parameter INIT_FILE_0 = "",
-    parameter INIT_FILE_1 = "",
-    parameter INIT_FILE_2 = "",
-    parameter INIT_FILE_3 = ""
+    parameter int FRACTIONAL_BITS = 4
 )(
     input  logic clk,
     input  logic rst,
@@ -22,7 +18,7 @@ module kan_generic_core #(
     input  logic start,
     output logic done,
     
-    // Input Activation BRAM Interface (width is PARALLELISM * 8 bits)
+    // Input Activation BRAM Interface
     output logic [$clog2(INPUT_DIM/PARALLELISM)-1:0] in_bram_addr,
     input  logic [(PARALLELISM*8)-1:0]              in_bram_dout,
     
@@ -31,86 +27,38 @@ module kan_generic_core #(
     output logic [7:0]                              out_bram_din,
     output logic                                    out_bram_we,
     
-    // Weight Loader Port (for loading LUT BRAMs at boot time)
-    input  logic                                    loader_we,
-    input  logic [$clog2(PARALLELISM)-1:0]           loader_lane,
-    input  logic [$clog2(OUTPUT_DIM * (INPUT_DIM/PARALLELISM) * LUT_DEPTH)-1:0] loader_addr,
-    input  logic signed [DATA_WIDTH-1:0]            loader_din
+    // External PSRAM Interface
+    output logic                                    mem_req,
+    output logic [31:0]                             mem_addr,
+    input  logic [15:0]                             mem_rdata,
+    input  logic                                    mem_rvalid,
+    input  logic                                    mem_ready
 );
 
   localparam int CHUNKS = INPUT_DIM / PARALLELISM;
-  localparam int BRAM_ADDR_WIDTH = $clog2(OUTPUT_DIM * CHUNKS * LUT_DEPTH);
 
-  // BRAM bank interface signals
-  logic [BRAM_ADDR_WIDTH-1:0]       bram_addr_a [0:PARALLELISM-1];
-  logic signed [DATA_WIDTH-1:0]     bram_dout_a [0:PARALLELISM-1];
+  // Local weight caches (4 lanes)
+  // Stores CHUNKS weights per lane for the active neuron
+  logic signed [DATA_WIDTH-1:0] lane_cache [0:PARALLELISM-1][0:CHUNKS-1];
   
-  // Explicitly instantiate 4 lane BRAMs for maximum tool compatibility
-  kan_bram_bank #(
-      .DATA_WIDTH(DATA_WIDTH),
-      .ADDR_WIDTH(BRAM_ADDR_WIDTH),
-      .INIT_FILE(INIT_FILE_0)
-  ) lane_ram_0 (
-      .clk(clk),
-      .addr_a(bram_addr_a[0]),
-      .dout_a(bram_dout_a[0]),
-      .we_b(loader_we && (loader_lane == 0)),
-      .addr_b(loader_addr),
-      .din_b(loader_din),
-      .dout_b()
-  );
-
-  kan_bram_bank #(
-      .DATA_WIDTH(DATA_WIDTH),
-      .ADDR_WIDTH(BRAM_ADDR_WIDTH),
-      .INIT_FILE(INIT_FILE_1)
-  ) lane_ram_1 (
-      .clk(clk),
-      .addr_a(bram_addr_a[1]),
-      .dout_a(bram_dout_a[1]),
-      .we_b(loader_we && (loader_lane == 1)),
-      .addr_b(loader_addr),
-      .din_b(loader_din),
-      .dout_b()
-  );
-
-  kan_bram_bank #(
-      .DATA_WIDTH(DATA_WIDTH),
-      .ADDR_WIDTH(BRAM_ADDR_WIDTH),
-      .INIT_FILE(INIT_FILE_2)
-  ) lane_ram_2 (
-      .clk(clk),
-      .addr_a(bram_addr_a[2]),
-      .dout_a(bram_dout_a[2]),
-      .we_b(loader_we && (loader_lane == 2)),
-      .addr_b(loader_addr),
-      .din_b(loader_din),
-      .dout_b()
-  );
-
-  kan_bram_bank #(
-      .DATA_WIDTH(DATA_WIDTH),
-      .ADDR_WIDTH(BRAM_ADDR_WIDTH),
-      .INIT_FILE(INIT_FILE_3)
-  ) lane_ram_3 (
-      .clk(clk),
-      .addr_a(bram_addr_a[3]),
-      .dout_a(bram_dout_a[3]),
-      .we_b(loader_we && (loader_lane == 3)),
-      .addr_b(loader_addr),
-      .din_b(loader_din),
-      .dout_b()
-  );
-
   // Pipeline Signals
-  typedef enum logic [1:0] {
+  typedef enum logic [2:0] {
       IDLE,
+      PREFETCH,
       RUN,
       WRITE_OUT,
       DONE_STATE
   } state_t;
   
   state_t state;
+  
+  typedef enum logic [1:0] {
+      MEM_CMD,
+      MEM_WAIT
+  } mem_state_t;
+  mem_state_t mem_state;
+  
+  logic [15:0] p_fetch;
   
   logic [$clog2(OUTPUT_DIM)-1:0] q_reg;
   logic [$clog2(CHUNKS)-1:0]     c_s0;
@@ -119,19 +67,18 @@ module kan_generic_core #(
   logic [$clog2(CHUNKS)-1:0]     c_s1;
   logic [$clog2(OUTPUT_DIM)-1:0] q_s1;
   logic                          val_en_s1;
-  logic [(PARALLELISM*8)-1:0]    in_bram_dout_reg;
   
   // Pipeline Stage 2 Registers
   logic [$clog2(CHUNKS)-1:0]     c_s2;
   logic [$clog2(OUTPUT_DIM)-1:0] q_s2;
   logic                          val_en_s2;
+  logic signed [DATA_WIDTH-1:0]  bram_dout_a [0:PARALLELISM-1];
   
   localparam int ACC_WIDTH = DATA_WIDTH + $clog2(INPUT_DIM);
   logic signed [ACC_WIDTH-1:0]   acc;
   logic signed [ACC_WIDTH-1:0]   div_val;
 
   // Adder tree for Stage 2 BRAM outputs
-  // Combinational summation of all lane outputs
   logic signed [ACC_WIDTH-1:0] temp_sum;
   logic signed [DATA_WIDTH+$clog2(PARALLELISM)-1:0] lane_sum;
   always_comb begin
@@ -142,15 +89,23 @@ module kan_generic_core #(
     lane_sum = temp_sum[DATA_WIDTH+$clog2(PARALLELISM)-1:0];
   end
 
-  // Stage 0: Address the Input BRAM
-  assign in_bram_addr = c_s0;
-
-  // Stage 1: Route input values to BRAM banks
-  // For each lane l, address the BRAM using the input value from in_bram_dout
+  // Input Activation BRAM address multiplexing
   always_comb begin
-    for (int i = 0; i < PARALLELISM; i = i + 1) begin
-      // Calculate BRAM address: (q_s1 * CHUNKS + c_s1) * 256 + x_val
-      bram_addr_a[i] = (BRAM_ADDR_WIDTH) ' ( ( (q_s1 * CHUNKS) + c_s1 ) * LUT_DEPTH + in_bram_dout_reg[i*8 +: 8] );
+    if (state == PREFETCH) begin
+      in_bram_addr = (p_fetch >> $clog2(PARALLELISM));
+    end else if (state == RUN) begin
+      in_bram_addr = c_s0;
+    end else begin
+      in_bram_addr = '0;
+    end
+  end
+
+  // Synchronous read of lane_cache to match the 1-cycle latency of the original BRAM bank
+  always_ff @(posedge clk) begin
+    if (state == RUN || state == WRITE_OUT) begin
+      for (int i = 0; i < PARALLELISM; i = i + 1) begin
+        bram_dout_a[i] <= lane_cache[i][c_s1];
+      end
     end
   end
 
@@ -158,12 +113,13 @@ module kan_generic_core #(
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       state         <= IDLE;
+      mem_state     <= MEM_CMD;
+      p_fetch       <= '0;
       q_reg         <= '0;
       c_s0          <= '0;
       c_s1          <= '0;
       q_s1          <= '0;
       val_en_s1     <= 1'b0;
-      in_bram_dout_reg <= '0;
       c_s2          <= '0;
       q_s2          <= '0;
       val_en_s2     <= 1'b0;
@@ -171,22 +127,53 @@ module kan_generic_core #(
       out_bram_we   <= 1'b0;
       out_bram_addr <= '0;
       out_bram_din  <= '0;
+      mem_req       <= 1'b0;
+      mem_addr      <= '0;
       done          <= 1'b0;
     end else begin
-      out_bram_we      <= 1'b0;
-      done             <= 1'b0;
-      in_bram_dout_reg <= in_bram_dout;
+      out_bram_we   <= 1'b0;
+      done          <= 1'b0;
+      mem_req       <= 1'b0;
       
       case (state)
         IDLE: begin
           if (start) begin
-            state     <= RUN;
+            state     <= PREFETCH;
             q_reg     <= '0;
-            c_s0      <= '0;
-            val_en_s1 <= 1'b0;
-            val_en_s2 <= 1'b0;
-            acc       <= '0;
+            p_fetch   <= '0;
+            mem_state <= MEM_CMD;
           end
+        end
+        
+        PREFETCH: begin
+          case (mem_state)
+            MEM_CMD: begin
+              mem_req  <= 1'b1;
+              // Compute memory address: (q_reg * INPUT_DIM + p_fetch) * 256 + x_val
+              mem_addr <= ( (q_reg * INPUT_DIM + p_fetch) * 256 ) + in_bram_dout[(p_fetch[1:0])*8 +: 8];
+              if (mem_ready) begin
+                mem_state <= MEM_WAIT;
+              end
+            end
+            
+            MEM_WAIT: begin
+              if (mem_rvalid) begin
+                lane_cache[p_fetch[1:0]][p_fetch >> 2] <= mem_rdata[DATA_WIDTH-1:0];
+                if (p_fetch == (INPUT_DIM - 1)) begin
+                  state     <= RUN;
+                  c_s0      <= '0;
+                  val_en_s1 <= 1'b0;
+                  val_en_s2 <= 1'b0;
+                  acc       <= '0;
+                end else begin
+                  p_fetch   <= p_fetch + 1;
+                  mem_state <= MEM_CMD;
+                end
+              end
+            end
+            
+            default: mem_state <= MEM_CMD;
+          endcase
         end
         
         RUN: begin
@@ -207,8 +194,6 @@ module kan_generic_core #(
           
           // Stage 0 Counter Logic
           if (c_s0 == (CHUNKS - 1)) begin
-            // We have addressed all inputs for the current neuron q_reg.
-            // Move to drainage state or transition to write output.
             state <= WRITE_OUT;
             c_s0  <= '0;
           end else begin
@@ -232,7 +217,6 @@ module kan_generic_core #(
           // Wait until Stage 2 has drained the last chunk of the current neuron
           if (val_en_s2 && (c_s2 == (CHUNKS - 1))) begin
             // Perform division and saturation
-            // Divide by 2^FRACTIONAL_BITS (rounding shift)
             div_val = (acc + lane_sum + (1 << (FRACTIONAL_BITS - 1))) >>> FRACTIONAL_BITS;
             
             // Saturation/Clipping to [0, 255]
@@ -244,10 +228,10 @@ module kan_generic_core #(
             if (q_reg == (OUTPUT_DIM - 1)) begin
               state <= DONE_STATE;
             end else begin
-              q_reg <= q_reg + 1;
-              state <= RUN;
-              c_s0  <= '0;
-              acc   <= '0;
+              q_reg     <= q_reg + 1;
+              state     <= PREFETCH;
+              p_fetch   <= '0;
+              mem_state <= MEM_CMD;
             end
           end
         end

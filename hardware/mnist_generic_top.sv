@@ -1,19 +1,10 @@
 // hardware/mnist_generic_top.sv
 // Top-level MNIST generic KAN-LUT accelerator.
-// Integrates Layer 1 and Layer 2 KAN cores and memory buffers.
+// Integrates Layer 1 and Layer 2 KAN cores with a unified PSRAM interface.
 
 `timescale 1ns/1ps
 
-module mnist_generic_top #(
-    parameter L1_INIT_0 = "",
-    parameter L1_INIT_1 = "",
-    parameter L1_INIT_2 = "",
-    parameter L1_INIT_3 = "",
-    parameter L2_INIT_0 = "",
-    parameter L2_INIT_1 = "",
-    parameter L2_INIT_2 = "",
-    parameter L2_INIT_3 = ""
-)(
+module mnist_generic_top (
     input  logic       clk,
     input  logic       rst,
     
@@ -28,12 +19,19 @@ module mnist_generic_top #(
     
     // Testbench Read Port from Output Activation Memory
     input  logic [3:0] out_mem_addr,
-    output logic [7:0] out_mem_dout
+    output logic [7:0] out_mem_dout,
+    
+    // External PSRAM Interface
+    output logic        mem_req,
+    output logic [31:0] mem_addr,
+    input  logic [15:0] mem_rdata,
+    input  logic        mem_rvalid,
+    input  logic        mem_ready
 );
 
   // Activation Memories
   logic [7:0] in_mem [0:195];
-  logic [7:0] layer1_out_mem [0:31];
+  logic [7:0] layer1_out_mem [0:63];
   logic [7:0] output_mem [0:9];
 
   // Write inputs from testbench
@@ -61,9 +59,15 @@ module mnist_generic_top #(
   logic        l1_done;
   logic [5:0]  l1_in_bram_addr; // 196 / 4 = 49 chunks -> 6 bits
   logic [31:0] l1_in_bram_dout;
-  logic [4:0]  l1_out_bram_addr; // 32 outputs -> 5 bits
+  logic [5:0]  l1_out_bram_addr; // 64 outputs -> 6 bits
   logic [7:0]  l1_out_bram_din;
   logic        l1_out_bram_we;
+  
+  logic        l1_mem_req;
+  logic [31:0] l1_mem_addr;
+  logic [15:0] l1_mem_rdata;
+  logic        l1_mem_rvalid;
+  logic        l1_mem_ready;
 
   // Map 1D in_mem to 32-bit chunk output for Layer 1
   assign l1_in_bram_dout = {
@@ -83,11 +87,17 @@ module mnist_generic_top #(
   // Layer 2 Signals
   logic        l2_start;
   logic        l2_done;
-  logic [2:0]  l2_in_bram_addr; // 32 / 4 = 8 chunks -> 3 bits
+  logic [3:0]  l2_in_bram_addr; // 64 / 4 = 16 chunks -> 4 bits
   logic [31:0] l2_in_bram_dout;
   logic [3:0]  l2_out_bram_addr; // 10 outputs -> 4 bits
   logic [7:0]  l2_out_bram_din;
   logic        l2_out_bram_we;
+  
+  logic        l2_mem_req;
+  logic [31:0] l2_mem_addr;
+  logic [15:0] l2_mem_rdata;
+  logic        l2_mem_rvalid;
+  logic        l2_mem_ready;
 
   // Map 1D layer1_out_mem to 32-bit chunk output for Layer 2
   assign l2_in_bram_dout = {
@@ -104,19 +114,41 @@ module mnist_generic_top #(
     end
   end
 
+  // Memory Interface Multiplexer (Arbiter)
+  // Layer 1 and Layer 2 run sequentially, so we select the active core's request.
+  always_comb begin
+    if (state == RUN_L1 || l1_start) begin
+      mem_req       = l1_mem_req;
+      mem_addr      = l1_mem_addr;
+      l1_mem_rdata  = mem_rdata;
+      l1_mem_rvalid = mem_rvalid;
+      l1_mem_ready  = mem_ready;
+      
+      l2_mem_rdata  = '0;
+      l2_mem_rvalid = 1'b0;
+      l2_mem_ready  = 1'b0;
+    end else begin
+      mem_req       = l2_mem_req;
+      // Offset Layer 2 weights so they reside contiguously after Layer 1 (offset = 3,211,264 words)
+      mem_addr      = l2_mem_addr + 32'd3211264;
+      l2_mem_rdata  = mem_rdata;
+      l2_mem_rvalid = mem_rvalid;
+      l2_mem_ready  = mem_ready;
+      
+      l1_mem_rdata  = '0;
+      l1_mem_rvalid = 1'b0;
+      l1_mem_ready  = 1'b0;
+    end
+  end
+
   // Instantiate Layer 1 Generic Core (196 -> 32)
-  // LUTs use 14-bit data width, fractional bits = 4
   kan_generic_core #(
       .INPUT_DIM(196),
-      .OUTPUT_DIM(32),
+      .OUTPUT_DIM(64),
       .PARALLELISM(4),
       .LUT_DEPTH(256),
       .DATA_WIDTH(14),
-      .FRACTIONAL_BITS(4),
-      .INIT_FILE_0(L1_INIT_0),
-      .INIT_FILE_1(L1_INIT_1),
-      .INIT_FILE_2(L1_INIT_2),
-      .INIT_FILE_3(L1_INIT_3)
+      .FRACTIONAL_BITS(4)
   ) l1_core (
       .clk(clk),
       .rst(rst),
@@ -127,27 +159,21 @@ module mnist_generic_top #(
       .out_bram_addr(l1_out_bram_addr),
       .out_bram_din(l1_out_bram_din),
       .out_bram_we(l1_out_bram_we),
-      
-      // Loader ports unused in simulation
-      .loader_we(1'b0),
-      .loader_lane('0),
-      .loader_addr('0),
-      .loader_din('0)
+      .mem_req(l1_mem_req),
+      .mem_addr(l1_mem_addr),
+      .mem_rdata(l1_mem_rdata),
+      .mem_rvalid(l1_mem_rvalid),
+      .mem_ready(l1_mem_ready)
   );
 
-  // Instantiate Layer 2 Generic Core (32 -> 10)
-  // LUTs use 13-bit data width, fractional bits = 4
+  // Instantiate Layer 2 Generic Core (64 -> 10)
   kan_generic_core #(
-      .INPUT_DIM(32),
+      .INPUT_DIM(64),
       .OUTPUT_DIM(10),
       .PARALLELISM(4),
       .LUT_DEPTH(256),
       .DATA_WIDTH(13),
-      .FRACTIONAL_BITS(4),
-      .INIT_FILE_0(L2_INIT_0),
-      .INIT_FILE_1(L2_INIT_1),
-      .INIT_FILE_2(L2_INIT_2),
-      .INIT_FILE_3(L2_INIT_3)
+      .FRACTIONAL_BITS(4)
   ) l2_core (
       .clk(clk),
       .rst(rst),
@@ -158,12 +184,11 @@ module mnist_generic_top #(
       .out_bram_addr(l2_out_bram_addr),
       .out_bram_din(l2_out_bram_din),
       .out_bram_we(l2_out_bram_we),
-      
-      // Loader ports unused in simulation
-      .loader_we(1'b0),
-      .loader_lane('0),
-      .loader_addr('0),
-      .loader_din('0)
+      .mem_req(l2_mem_req),
+      .mem_addr(l2_mem_addr),
+      .mem_rdata(l2_mem_rdata),
+      .mem_rvalid(l2_mem_rvalid),
+      .mem_ready(l2_mem_ready)
   );
 
   // Orchestrator FSM

@@ -13,7 +13,12 @@ SIM_BIN = sim_generic_core
 MEM_FILES = layer1_lane0.mem layer1_lane1.mem layer1_lane2.mem layer1_lane3.mem \
             layer2_lane0.mem layer2_lane1.mem layer2_lane2.mem layer2_lane3.mem
 
-.PHONY: all run compile generate clean synth help
+NANO20K_SRC = nano20k_top.sv uart_rx.v uart_tx.v sdram.v gowin_rpll/gowin_rpll.v $(TOP_SRC) $(CORE_SRC) $(BRAM_SRC)
+
+SDL2_CFLAGS := $(shell pkg-config --cflags sdl2)
+SDL2_LIBS   := $(shell pkg-config --libs   sdl2)
+
+.PHONY: all run compile generate clean synth sim_interactive help
 
 all: run
 
@@ -34,17 +39,35 @@ generate:
 clean:
 	@echo "=== Cleaning Simulation Artifacts ==="
 	rm -f $(SIM_BIN)
+	rm -rf obj_dir_interactive
 
 synth:
 	@echo "=== Synthesizing Generic KAN Core with Yosys ==="
 	yosys -p "read_verilog -sv $(TOP_SRC) $(CORE_SRC) $(BRAM_SRC); synth_ecp5 -top mnist_generic_top"
 
+nano20k:
+	@echo "=== Synthesizing and Place/Routing for Tang Nano 20K ==="
+	yosys -p "read_verilog -sv $(NANO20K_SRC); synth_gowin -top nano20k_top -json nano20k.json"
+	nextpnr-himbaechel --json nano20k.json --write nano20k_pnr.json --device GW2AR-LV18QN88C8/I7 --vopt family=GW2A-18C --vopt cst=nano20k.cst
+	gowin_pack -d GW2A-18C -o pack.fs nano20k_pnr.json
+
+sim_interactive: $(TOP_SRC) $(CORE_SRC) sim_interactive.cpp $(MEM_FILES)
+	@echo "=== Building interactive simulation (mnist_generic_top + SDL2) ==="
+	rm -rf obj_dir_interactive
+	verilator --cc --exe -Wno-fatal --build \
+		--CFLAGS "$(SDL2_CFLAGS)" --LDFLAGS "$(SDL2_LIBS)" \
+		sim_interactive.cpp $(TOP_SRC) $(CORE_SRC) \
+		--top mnist_generic_top -o Vmnist_generic_top --Mdir obj_dir_interactive
+	@echo "=== Launching interactive simulation ==="
+	./obj_dir_interactive/Vmnist_generic_top
+
 help:
 	@echo "Generic KAN Core Simulation Makefile"
 	@echo "Targets:"
-	@echo "  all       : Compile and run simulation (default)"
-	@echo "  compile   : Compile SystemVerilog files into $(SIM_BIN)"
-	@echo "  run       : Execute compiled simulation binary"
-	@echo "  generate  : Run Julia script to regenerate BRAM mem initialization files"
-	@echo "  clean     : Remove generated simulation binaries"
-	@echo "  synth     : Synthesize the design using Yosys for ECP5"
+	@echo "  all             : Compile and run simulation (default)"
+	@echo "  compile         : Compile SystemVerilog files into $(SIM_BIN)"
+	@echo "  run             : Execute compiled simulation binary"
+	@echo "  generate        : Run Julia script to regenerate BRAM mem initialization files"
+	@echo "  clean           : Remove generated simulation binaries and verilator output"
+	@echo "  synth           : Synthesize the design using Yosys for ECP5"
+	@echo "  sim_interactive : Compile and launch interactive SDL2/Verilator simulation"

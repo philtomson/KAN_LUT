@@ -1,5 +1,5 @@
 // hardware/tb_generic_core.sv
-// Testbench to verify the parameterized generic KAN-LUT accelerator.
+// Testbench to verify the parameterized generic KAN-LUT accelerator with PSRAM backing.
 
 `timescale 1ns/1ps
 
@@ -16,18 +16,15 @@ module tb_generic_core;
   
   logic [3:0] out_mem_addr;
   logic [7:0] out_mem_dout;
+  
+  logic        mem_req;
+  logic [31:0] mem_addr;
+  logic [15:0] mem_rdata;
+  logic        mem_rvalid;
+  logic        mem_ready;
 
   // Instantiate the top-level design under test (DUT)
-  mnist_generic_top #(
-      .L1_INIT_0("layer1_lane0.mem"),
-      .L1_INIT_1("layer1_lane1.mem"),
-      .L1_INIT_2("layer1_lane2.mem"),
-      .L1_INIT_3("layer1_lane3.mem"),
-      .L2_INIT_0("layer2_lane0.mem"),
-      .L2_INIT_1("layer2_lane1.mem"),
-      .L2_INIT_2("layer2_lane2.mem"),
-      .L2_INIT_3("layer2_lane3.mem")
-  ) dut (
+  mnist_generic_top dut (
       .clk(clk),
       .rst(rst),
       .start(start),
@@ -36,8 +33,107 @@ module tb_generic_core;
       .in_mem_addr(in_mem_addr),
       .in_mem_din(in_mem_din),
       .out_mem_addr(out_mem_addr),
-      .out_mem_dout(out_mem_dout)
+      .out_mem_dout(out_mem_dout),
+      .mem_req(mem_req),
+      .mem_addr(mem_addr),
+      .mem_rdata(mem_rdata),
+      .mem_rvalid(mem_rvalid),
+      .mem_ready(mem_ready)
   );
+
+  // Mock PSRAM Memory
+  logic [15:0] psram_mem [0:2000000];
+
+  // Temporary flat arrays to load the lane files
+  logic [13:0] temp_l1_lane_0 [0:401407];
+  logic [13:0] temp_l1_lane_1 [0:401407];
+  logic [13:0] temp_l1_lane_2 [0:401407];
+  logic [13:0] temp_l1_lane_3 [0:401407];
+
+  logic [12:0] temp_l2_lane_0 [0:20479];
+  logic [12:0] temp_l2_lane_1 [0:20479];
+  logic [12:0] temp_l2_lane_2 [0:20479];
+  logic [12:0] temp_l2_lane_3 [0:20479];
+
+  // Load and Map Lane weight files to a single contiguous PSRAM image
+  initial begin
+    int q, c, x;
+    int lane_addr;
+    int psram_base;
+
+    // Load Layer 1 Lane Files
+    $readmemh("layer1_lane0.mem", temp_l1_lane_0);
+    $readmemh("layer1_lane1.mem", temp_l1_lane_1);
+    $readmemh("layer1_lane2.mem", temp_l1_lane_2);
+    $readmemh("layer1_lane3.mem", temp_l1_lane_3);
+    
+    // Map Layer 1 Lanes to PSRAM
+    for (q = 0; q < 32; q++) begin
+      for (c = 0; c < 49; c++) begin
+        for (x = 0; x < 256; x++) begin
+          lane_addr = (q * 49 + c) * 256 + x;
+          psram_base = (q * 196 + c * 4) * 256 + x;
+          psram_mem[psram_base + 0*256] = temp_l1_lane_0[lane_addr];
+          psram_mem[psram_base + 1*256] = temp_l1_lane_1[lane_addr];
+          psram_mem[psram_base + 2*256] = temp_l1_lane_2[lane_addr];
+          psram_mem[psram_base + 3*256] = temp_l1_lane_3[lane_addr];
+        end
+      end
+    end
+
+    // Load Layer 2 Lane Files
+    $readmemh("layer2_lane0.mem", temp_l2_lane_0);
+    $readmemh("layer2_lane1.mem", temp_l2_lane_1);
+    $readmemh("layer2_lane2.mem", temp_l2_lane_2);
+    $readmemh("layer2_lane3.mem", temp_l2_lane_3);
+
+    // Map Layer 2 Lanes to PSRAM (offset = 1605632)
+    for (q = 0; q < 10; q++) begin
+      for (c = 0; c < 8; c++) begin
+        for (x = 0; x < 256; x++) begin
+          lane_addr = (q * 8 + c) * 256 + x;
+          psram_base = 1605632 + (q * 32 + c * 4) * 256 + x;
+          psram_mem[psram_base + 0*256] = temp_l2_lane_0[lane_addr];
+          psram_mem[psram_base + 1*256] = temp_l2_lane_1[lane_addr];
+          psram_mem[psram_base + 2*256] = temp_l2_lane_2[lane_addr];
+          psram_mem[psram_base + 3*256] = temp_l2_lane_3[lane_addr];
+        end
+      end
+    end
+    $display("Mock PSRAM initialization complete.");
+  end
+
+  // Cycle-accurate latency simulation: 5-cycle read latency
+  assign mem_ready = 1'b1;
+  logic [15:0] rdata_queue [0:4];
+  logic        rvalid_queue [0:4];
+
+  always @(posedge clk or posedge rst) begin
+    if (rst) begin
+      for (int i = 0; i < 5; i = i + 1) begin
+        rdata_queue[i]  <= '0;
+        rvalid_queue[i] <= 1'b0;
+      end
+    end else begin
+      // Shift queue
+      for (int i = 0; i < 4; i = i + 1) begin
+        rdata_queue[i]  <= rdata_queue[i+1];
+        rvalid_queue[i] <= rvalid_queue[i+1];
+      end
+      
+      // Load new request at end of queue
+      if (mem_req && mem_ready) begin
+        rdata_queue[4]  <= psram_mem[mem_addr];
+        rvalid_queue[4] <= 1'b1;
+      end else begin
+        rdata_queue[4]  <= '0;
+        rvalid_queue[4] <= 1'b0;
+      end
+    end
+  end
+
+  assign mem_rdata  = rdata_queue[0];
+  assign mem_rvalid = rvalid_queue[0];
 
   // Clock generation (50 MHz)
   always #10 clk = ~clk;
@@ -60,7 +156,7 @@ module tb_generic_core;
     in_mem_din = 0;
     out_mem_addr = 0;
 
-    // Load test data from file (support plusargs)
+    // Load test data from file
     if (!$value$plusargs("DATA_FILE=%s", data_file_path)) begin
       data_file_path = "examples/MNIST/FPGA/tb_data.txt";
     end
@@ -124,7 +220,7 @@ module tb_generic_core;
       $display("Sample %0d verified successfully.", s);
     end
 
-    $display("SUCCESS: All 100 samples verified with 100%% bit-accurate parity on Generic KAN Core!");
+    $display("SUCCESS: All 100 samples verified with 100%% bit-accurate parity on PSRAM-backed KAN Core!");
     $finish;
   end
 
