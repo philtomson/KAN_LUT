@@ -127,8 +127,41 @@ Paradigm 2 supports physical synthesis and deployment on the **Sipeed Tang Nano 
     openFPGALoader -b tangnano20k pack.fs
     ```
 
-3.  **Stream Weights & Verify Inference**:
+3. **Stream Weights & Verify Inference**:
     ```bash
     python test_nano20k.py /dev/ttyUSB1
     ```
     This script converts the trained JSON LUT weights to a flat 6.75 MB binary payload, uploads it to the SDRAM over a 2 Mbaud UART connection, and streams test images to verify physical inference accuracy.
+
+---
+
+## 5. Interactive Verilator Simulation (SDL2 Canvas)
+
+You can launch an interactive desktop application where you draw digits with your mouse on an SDL2 window, and the Verilator simulation of our generic KAN IP Core runs inference on it in real time.
+
+### Installing Dependencies
+
+Ensure you have Verilator, SDL2, and compiler tools installed:
+
+#### On Ubuntu / Debian:
+```bash
+sudo apt-get update
+sudo apt-get install verilator libsdl2-dev pkg-config build-essential
+```
+
+#### On Fedora:
+```bash
+sudo dnf install verilator SDL2-devel pkgconf-pkg-config make gcc-c++
+```
+
+### Running the Interactive Simulation
+
+To build and launch the SDL2-backed Verilator simulation:
+```bash
+cd examples/MNIST/FPGA
+make -f Makefile.generic sim_interactive
+```
+This will:
+1. Compile the SystemVerilog core using Verilator.
+2. Link it against the host C++ SDL2 drawing canvas (`sim_interactive.cpp`).
+3. Open a window for drawing digits. The simulated KAN will classify your drawings live!
