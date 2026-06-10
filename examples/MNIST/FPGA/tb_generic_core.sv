@@ -42,18 +42,18 @@ module tb_generic_core;
   );
 
   // Mock PSRAM Memory
-  logic [15:0] psram_mem [0:2000000];
+  logic [15:0] psram_mem [0:4000000];
 
   // Temporary flat arrays to load the lane files
-  logic [13:0] temp_l1_lane_0 [0:401407];
-  logic [13:0] temp_l1_lane_1 [0:401407];
-  logic [13:0] temp_l1_lane_2 [0:401407];
-  logic [13:0] temp_l1_lane_3 [0:401407];
+  logic [13:0] temp_l1_lane_0 [0:802815];
+  logic [13:0] temp_l1_lane_1 [0:802815];
+  logic [13:0] temp_l1_lane_2 [0:802815];
+  logic [13:0] temp_l1_lane_3 [0:802815];
 
-  logic [12:0] temp_l2_lane_0 [0:20479];
-  logic [12:0] temp_l2_lane_1 [0:20479];
-  logic [12:0] temp_l2_lane_2 [0:20479];
-  logic [12:0] temp_l2_lane_3 [0:20479];
+  logic [12:0] temp_l2_lane_0 [0:40959];
+  logic [12:0] temp_l2_lane_1 [0:40959];
+  logic [12:0] temp_l2_lane_2 [0:40959];
+  logic [12:0] temp_l2_lane_3 [0:40959];
 
   // Load and Map Lane weight files to a single contiguous PSRAM image
   initial begin
@@ -68,7 +68,7 @@ module tb_generic_core;
     $readmemh("layer1_lane3.mem", temp_l1_lane_3);
     
     // Map Layer 1 Lanes to PSRAM
-    for (q = 0; q < 32; q++) begin
+    for (q = 0; q < 64; q++) begin
       for (c = 0; c < 49; c++) begin
         for (x = 0; x < 256; x++) begin
           lane_addr = (q * 49 + c) * 256 + x;
@@ -87,12 +87,12 @@ module tb_generic_core;
     $readmemh("layer2_lane2.mem", temp_l2_lane_2);
     $readmemh("layer2_lane3.mem", temp_l2_lane_3);
 
-    // Map Layer 2 Lanes to PSRAM (offset = 1605632)
+    // Map Layer 2 Lanes to PSRAM (offset = 3211264)
     for (q = 0; q < 10; q++) begin
-      for (c = 0; c < 8; c++) begin
+      for (c = 0; c < 16; c++) begin
         for (x = 0; x < 256; x++) begin
-          lane_addr = (q * 8 + c) * 256 + x;
-          psram_base = 1605632 + (q * 32 + c * 4) * 256 + x;
+          lane_addr = (q * 16 + c) * 256 + x;
+          psram_base = 3211264 + (q * 64 + c * 4) * 256 + x;
           psram_mem[psram_base + 0*256] = temp_l2_lane_0[lane_addr];
           psram_mem[psram_base + 1*256] = temp_l2_lane_1[lane_addr];
           psram_mem[psram_base + 2*256] = temp_l2_lane_2[lane_addr];

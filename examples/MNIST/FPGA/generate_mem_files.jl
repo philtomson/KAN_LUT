@@ -70,9 +70,8 @@ end
 P = 4
 out_dir = @__DIR__
 
-# Paths
-layer1_json = joinpath(@__DIR__, "..", "examples", "MNIST", "mnist_luts_layer1.json")
-layer2_json = joinpath(@__DIR__, "..", "examples", "MNIST", "mnist_luts_layer2.json")
+layer1_json = joinpath(@__DIR__, "..", "mnist_luts_layer1.json")
+layer2_json = joinpath(@__DIR__, "..", "mnist_luts_layer2.json")
 
 generate_layer_mems(layer1_json, 1, P, 14, out_dir)
 generate_layer_mems(layer2_json, 2, P, 13, out_dir)

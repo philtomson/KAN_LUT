@@ -1,19 +1,28 @@
-# hardware/Makefile
+# examples/MNIST/FPGA/Makefile.generic
 # Makefile for compiling and running the Parameterized Generic KAN IP Core simulation
 
 JULIA = julia
 IVERILOG = iverilog
 
+CORE_DIR = ../../../hardware
+CORE_SRC = $(CORE_DIR)/kan_generic_core.sv
+BRAM_SRC = $(CORE_DIR)/kan_bram_bank.sv
+
 TB_SRC = tb_generic_core.sv
 TOP_SRC = mnist_generic_top.sv
-CORE_SRC = kan_generic_core.sv
-BRAM_SRC = kan_bram_bank.sv
 
 SIM_BIN = sim_generic_core
 MEM_FILES = layer1_lane0.mem layer1_lane1.mem layer1_lane2.mem layer1_lane3.mem \
             layer2_lane0.mem layer2_lane1.mem layer2_lane2.mem layer2_lane3.mem
 
-NANO20K_SRC = nano20k_top.sv uart_rx.v uart_tx.v sdram.v gowin_rpll/gowin_rpll.v $(TOP_SRC) $(CORE_SRC) $(BRAM_SRC)
+NANO20K_SRC = nano20k_top.sv \
+              $(CORE_DIR)/uart_rx.v \
+              $(CORE_DIR)/uart_tx.v \
+              $(CORE_DIR)/sdram.v \
+              $(CORE_DIR)/gowin_rpll/gowin_rpll.v \
+              $(TOP_SRC) \
+              $(CORE_SRC) \
+              $(BRAM_SRC)
 
 SDL2_CFLAGS := $(shell pkg-config --cflags sdl2)
 SDL2_LIBS   := $(shell pkg-config --libs   sdl2)
@@ -24,7 +33,7 @@ all: run
 
 run: compile
 	@echo "=== Running Generic KAN Core Simulation ==="
-	./$(SIM_BIN) +DATA_FILE=../examples/MNIST/FPGA/tb_data.txt
+	./$(SIM_BIN) +DATA_FILE=tb_data.txt
 
 compile: $(SIM_BIN)
 
@@ -34,12 +43,13 @@ $(SIM_BIN): $(TB_SRC) $(TOP_SRC) $(CORE_SRC) $(BRAM_SRC) $(MEM_FILES)
 
 generate:
 	@echo "=== Generating BRAM Lane Memory Files ==="
-	$(JULIA) --project=.. generate_mem_files.jl
+	$(JULIA) --project=../../.. generate_mem_files.jl
 
 clean:
 	@echo "=== Cleaning Simulation Artifacts ==="
 	rm -f $(SIM_BIN)
 	rm -rf obj_dir_interactive
+	rm -f nano20k.json nano20k_pnr.json pack.fs
 
 synth:
 	@echo "=== Synthesizing Generic KAN Core with Yosys ==="
