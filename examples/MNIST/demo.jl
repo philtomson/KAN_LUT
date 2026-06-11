@@ -5,6 +5,7 @@
 using KAN_LUT
 using Flux
 using AMDGPU
+using CUDA
 using LinearAlgebra
 using Random
 using JSON
@@ -67,8 +68,14 @@ layer2 = KANLayer(64, 10, G=5, a=-8.0, b=8.0)
 model = Chain(layer1, layer2)
 
 # Select GPU if available
-device = AMDGPU.functional() ? roc : cpu
-println("Training device: ", device == roc ? "AMD GPU" : "CPU")
+device, device_name = if CUDA.functional()
+    cu, "CUDA GPU"
+elseif AMDGPU.functional()
+    roc, "AMD GPU"
+else
+    cpu, "CPU"
+end
+println("Training device: ", device_name)
 
 # Move model and data to device
 model = fmap(device, model)
