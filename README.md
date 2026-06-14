@@ -8,9 +8,10 @@ This Julia framework implements KANs optimized for resource-efficient FPGA deplo
 
 1. **GPU-Accelerated B-spline Engine**: Fully vectorized linear B-spline evaluation supporting seamless execution on AMD GPUs.
 2. **Flux-Compatible KAN Layer**: Differentiable `KANLayer` designed for standard Flux workflows and gradient backpropagation.
-3. **Hardware-Optimized Quantization**: Discretization logic that converts continuous activations into static 8-bit L-LUT arrays. It bakes the input offset shift ($a / d_{in}$) directly into the tables, saving hardware subtractor stages in the adder tree.
-4. **Bit-Accurate FPGA Simulator**: Integer inference engines simulating FPGA adder-tree accumulations, bit-shifts, and saturation clipping.
-5. **Dynamic Online Learning**: Precomputes B-spline basis function LUTs allowing real-time, sparse coefficient updates on-device during distribution shifts.
+3. **Hardware-Optimized Quantization**: Discretization logic that converts continuous activations into static integer L-LUT arrays. It bakes the input offset shift ($a / d_{in}$) directly into the tables, saving hardware subtractor stages in the adder tree.
+4. **Mixed-Bitwidth QAT & Dynamic Pruning**: Supports training with layer-specific bitwidths (e.g., 1-bit inputs and 6-bit activations/outputs) using a custom sign Straight-Through Estimator (STE) and an asymptotic pruning schedule. Reduces memory size by up to 128× for the input layer.
+5. **Bit-Accurate FPGA Simulator**: Integer inference engines simulating FPGA adder-tree accumulations, bit-shifts, and saturation clipping.
+6. **Dynamic Online Learning**: Precomputes B-spline basis function LUTs allowing real-time, sparse coefficient updates on-device during distribution shifts.
 
 ---
 
@@ -38,6 +39,7 @@ We provide two end-to-end examples showcasing training, quantization, and verifi
    * See the [Moons README](file:///home/phil/devel/FPGA/KAN_LUT/examples/moon/README.md) for details.
 2. **MNIST Digits Classification (`examples/MNIST/`)**:
    * The classic handwritten digits classification task downsampled to 14x14 pixels.
+   * Supports both 8-bit uniform QAT (`demo.jl`) and advanced mixed-precision `[1, 6, 6]`-bit QAT with asymptotic pruning (`qat_mixed_demo.jl`).
    * Prints digit ASCII art inside the terminal and verifies bit-accurate inference.
    * See the [MNIST README](file:///home/phil/devel/FPGA/KAN_LUT/examples/MNIST/README.md) for details.
 

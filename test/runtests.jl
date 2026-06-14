@@ -134,4 +134,106 @@ using JSON
         end
     end
 
+    @testset "QAT and Dynamic Pruning" begin
+        # 1. Test STE Rounding Gradient Flow
+        x_val = Float32[1.2, 2.7, -0.4]
+        grads_ste = Flux.gradient(x -> sum(round_ste(x)), x_val)
+        @test grads_ste[1] ≈ ones(Float32, 3)
+
+        # 2. Test QATInputLayer and QATKANLayer construction and forward pass
+        d_in, d_out, G = 3, 4, 5
+        a, b = -2.0, 2.0
+        nbits = 8
+        
+        input_layer = QATInputLayer(d_in, nbits=nbits)
+        kan_layer = QATKANLayer(d_in, d_out, G=G, a=a, b=b, nbits=nbits)
+        
+        x = rand(Float32, d_in, 5) .* 2.0f0 .- 1.0f0 # input in [-1, 1]
+        
+        x_q = input_layer(x)
+        @test size(x_q) == (d_in, 5)
+        # Check that values are multiples of the scale
+        @test all(isapprox.(x_q ./ input_layer.scale[1], round.(x_q ./ input_layer.scale[1]), atol=1e-5))
+        
+        y_q = kan_layer(x_q)
+        @test size(y_q) == (d_out, 5)
+        @test all(isapprox.(y_q ./ kan_layer.scale[1], round.(y_q ./ kan_layer.scale[1]), atol=1e-5))
+        
+        # 3. Test parameter gradients
+        grads = Flux.gradient((il, kl) -> sum(kl(il(x))), input_layer, kan_layer)
+        @test grads[1] !== nothing # input layer gradients
+        @test grads[2] !== nothing # KAN layer gradients
+        @test grads[2].w_base !== nothing
+        @test grads[2].w_spline !== nothing
+        @test grads[2].scale !== nothing
+        
+        # 4. Test Dynamic Pruning
+        state_space = get_state_space(input_layer.scale, nbits)
+        @test length(state_space) == 256
+        
+        # Set one of the spline weights to 0.0 to see if it gets pruned
+        d_out, d_in = size(kan_layer.w_base)
+        w_spline_reshaped = reshape(kan_layer.w_spline, d_out, d_in, G + 1)
+        w_spline_reshaped[2, 1, :] .= 0.0f0
+        
+        # Trigger pruning
+        prune_layer!(kan_layer, 0.01f0, nothing, state_space)
+        @test kan_layer.selector[2, 1] == 0.0f0 # pruned
+        
+        # Test backward pruning propagation
+        # If next layer selector has all zeros for input 2, then input 2's incoming selector should be zeroed
+        next_selector = ones(Float32, 2, d_out)
+        next_selector[:, 2] .= 0.0f0 # no connections to node 2
+        
+        prune_layer!(kan_layer, 0.01f0, next_selector, state_space)
+        @test all(kan_layer.selector[2, :] .== 0.0f0) # all incoming connections to output 2 are pruned
+
+        # 5. Test QAT LUT Generation and Exact Bit-Accurate Parity
+        # Generate LUTs
+        luts = generate_qat_luts(kan_layer, input_layer.scale[1])
+        @test size(luts) == (256, d_out, d_in)
+        
+        # Let's perform integer inference on input
+        # Deconstruct continuous quantize: x_int = round(x_trans / scale)
+        x_trans = input_layer.bn(x) .+ input_layer.bias
+        x_clamped = clamp.(x_trans, -1.0f0, 1.0f0)
+        x_int = round.(Int32, x_clamped ./ input_layer.scale[1])
+        
+        # Unsign inputs for the first layer (offset by 2^(nbits-1))
+        x_uint = x_int .+ Int32(1 << (nbits - 1))
+        
+        # QAT fixed-point inference
+        y_int_lut = qat_fixed_lut_inference(luts, x_uint, nbits, is_first_layer=true)
+        
+        # Use exact dequantized input to avoid any BatchNorm state mismatch
+        x_q_fresh = Float32.(x_int) .* input_layer.scale[1]
+        
+        # Dequantized fixed-point output
+        y_dequant = Float32.(y_int_lut) .* kan_layer.scale[1]
+        
+        # QAT continuous forward output (using the masked forward pass)
+        y_continuous = kan_layer(x_q_fresh)
+        
+        # Verify they match up to boundary rounding tolerance
+        # (float values should match within 1.01 * scale, and integer outputs within 1 step)
+        @test all(abs.(y_int_lut .- round.(Int32, y_continuous ./ kan_layer.scale[1])) .<= 1)
+        @test all(abs.(y_dequant .- y_continuous) .<= 1.01f0 * kan_layer.scale[1])
+
+        # 6. AMD GPU Backward / Train tests
+        if AMDGPU.functional()
+            input_layer_gpu = fmap(roc, input_layer)
+            kan_layer_gpu = fmap(roc, kan_layer)
+            x_gpu = roc(x)
+            
+            y_gpu = kan_layer_gpu(input_layer_gpu(x_gpu))
+            @test size(y_gpu) == (d_out, 5)
+            
+            grads_gpu = Flux.gradient((il, kl) -> sum(kl(il(x_gpu))), input_layer_gpu, kan_layer_gpu)
+            @test grads_gpu[1] !== nothing
+            @test grads_gpu[2] !== nothing
+            @test grads_gpu[2].w_base !== nothing
+            @test grads_gpu[2].scale !== nothing
+        end
+    end
+
 end

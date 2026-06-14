@@ -166,8 +166,8 @@ module mnist_kan_layer$(layer_idx) (
     println("Finished Layer $(layer_idx) -> $(sv_out_path)")
 end
 
-function generate_top_rtl(sv_out_path::String)
-    println("Generating SystemVerilog Top wrapper...")
+function generate_top_rtl(sv_out_path::String, d_out_l1::Int)
+    println("Generating SystemVerilog Top wrapper with Layer 1 output size $(d_out_l1)...")
     open(sv_out_path, "w") do io
         write(io, """// Auto-generated SystemVerilog Top wrapper for MNIST KAN
 // Cascades Layer 1 and Layer 2 with an inter-layer register boundary.
@@ -180,9 +180,9 @@ module mnist_kan_top (
 );
 
   // Intermediate Layer 1 outputs
-  logic [7:0] l1_out [0:31];
+  logic [7:0] l1_out [0:$(d_out_l1-1)];
 
-  // Layer 1 Instance (latency = 9 cycles)
+  // Layer 1 Instance
   mnist_kan_layer1 l1 (
       .clk(clk),
       .rst(rst),
@@ -190,7 +190,7 @@ module mnist_kan_top (
       .out_val(l1_out)
   );
 
-  // Layer 2 Instance (latency = 6 cycles)
+  // Layer 2 Instance
   mnist_kan_layer2 l2 (
       .clk(clk),
       .rst(rst),
@@ -214,5 +214,15 @@ top_sv = joinpath(@__DIR__, "mnist_kan_top.sv")
 
 generate_layer_rtl(layer1_json, 1, layer1_sv)
 generate_layer_rtl(layer2_json, 2, layer2_sv)
-generate_top_rtl(top_sv)
+
+# Get Layer 1 output dimension dynamically
+l1_data = JSON.parsefile(layer1_json)
+l1_luts = l1_data["luts"]
+d_out_l1 = 0
+for key in keys(l1_luts)
+    parts = split(key, "_")
+    global d_out_l1 = max(d_out_l1, parse(Int, parts[2]))
+end
+
+generate_top_rtl(top_sv, d_out_l1)
 println("All SystemVerilog files generated successfully!")

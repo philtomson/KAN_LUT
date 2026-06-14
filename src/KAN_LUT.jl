@@ -73,5 +73,6 @@ end
 include("lut_generation.jl")
 include("inference.jl")
 include("utils.jl")
+include("qat.jl")
 
 end # module
